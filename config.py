@@ -1,3 +1,14 @@
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent
+DB_PATH = BASE_DIR / "perch.db"
+THUMBS_DIR = BASE_DIR / "thumbnails"
+THUMB_SIZE = (640, 360)
+THUMB_RETENTION_DAYS = 7
+PRUNE_INTERVAL_S = 3600
+
+CHROME_APP = "Google Chrome"
+
 CAMERA_NAME = "Matt Camera"
 CAMERA_RETRY_S = 3
 CAMERA_STALL_S = 5
