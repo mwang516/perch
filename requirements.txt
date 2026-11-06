@@ -2,3 +2,4 @@ typesafe-sdk==0.7.5
 pillow
 python-dotenv
 opencv-python
+pyobjc-framework-AVFoundation
