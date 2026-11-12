@@ -40,8 +40,8 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
-def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(config.DB_PATH)
+def connect(path=None) -> sqlite3.Connection:
+    conn = sqlite3.connect(path or config.DB_PATH)
     conn.executescript(SCHEMA)
     return conn
 
@@ -57,7 +57,7 @@ def end_session(conn: sqlite3.Connection, session_id: int, reason: str) -> None:
     conn.commit()
 
 
-def add_observation(conn: sqlite3.Connection, session_id: int, obs: dict, result: dict) -> None:
+def add_observation(conn: sqlite3.Connection, session_id: int, obs: dict, result: dict, commit: bool = True) -> int:
     answers = None
     if result["ok"]:
         answers = json.dumps({
@@ -68,7 +68,7 @@ def add_observation(conn: sqlite3.Connection, session_id: int, obs: dict, result
                 "probabilities": result["probabilities"],
             },
         })
-    conn.execute(
+    cur = conn.execute(
         """INSERT INTO observations (session_id, ts, trigger, change_score, status, error, latency_ms,
                input_tokens, model, answers, app, chrome_domain, idle_s, thumb_path)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -78,7 +78,9 @@ def add_observation(conn: sqlite3.Connection, session_id: int, obs: dict, result
             obs["app"], obs["domain"], obs["idle_s"], obs["thumb_path"],
         ),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
+    return cur.lastrowid
 
 
 def prune_thumbnails(conn: sqlite3.Connection) -> int:

@@ -5,3 +5,5 @@ opencv-python
 pyobjc-framework-AVFoundation
 pyobjc-framework-Cocoa
 pyobjc-framework-Quartz
+fastapi
+uvicorn

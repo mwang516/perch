@@ -19,6 +19,17 @@ FAST_INTERVAL_S = 2.5
 FAST_WINDOW_S = 30
 IDLE_THRESHOLD_S = 60
 
+# A normal answer takes ~150 ms. A hung request blocks every other send, so give up early.
+JEV_TIMEOUT_S = 3
+
 # EXPERIMENT: no monitor mask. The change score uses the whole frame, so screen content can trigger motion.
 MOTION_THRESHOLD = 8.0
 CHANGE_THUMB_SIZE = (64, 48)
+
+# Synthetic data for building the engine and dashboard before real logs exist (see fake.py).
+FAKE_DB_PATH = BASE_DIR / "fake.db"
+
+# App → meaning map for the mode engine. Trusted only while the Mac has recent input.
+GAME_APPS = {"osu!", "VMware Fusion"}
+CODING_APPS = {"Cursor", "Terminal", "iTerm2"}
+CODING_DOMAINS = {"leetcode.com", "github.com"}

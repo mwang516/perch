@@ -70,6 +70,9 @@ def main() -> None:
                 print_result(context(pending_obs), result)
                 pending_obs["thumb_path"] = save_thumbnail(pending_obs.pop("frame"), pending_obs["ts"])
                 db.add_observation(conn, session_id, pending_obs, result)
+                # One fresh frame after a failure, but no chain of retries while Jev is down.
+                if not result["ok"] and pending_obs["trigger"] != "retry":
+                    sampler.failed()
                 pending = None
             if conn and time.monotonic() - last_prune > config.PRUNE_INTERVAL_S:
                 db.prune_thumbnails(conn)

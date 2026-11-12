@@ -19,6 +19,11 @@ class Sampler:
         self._fast_until = -math.inf
         self._last_app: str | None = None
         self._was_idle = False
+        self._retry = False
+
+    def failed(self) -> None:
+        """The last send got no answer: send the newest frame soon instead of waiting for the heartbeat."""
+        self._retry = True
 
     def check(self, frame: np.ndarray, now: float, app: str | None, idle_s: float, busy: bool) -> tuple[str, float] | None:
         thumb = _thumb(frame)
@@ -35,6 +40,8 @@ class Sampler:
             trigger = "app_change"
         elif idle_crossed:
             trigger = "idle_crossed"
+        elif self._retry and since >= config.FAST_INTERVAL_S:
+            trigger = "retry"
         elif score > config.MOTION_THRESHOLD and since >= config.FAST_INTERVAL_S:
             trigger = "motion"
         elif now < self._fast_until and since >= config.FAST_INTERVAL_S:
@@ -48,5 +55,5 @@ class Sampler:
             return None
         if trigger == "motion":
             self._fast_until = now + config.FAST_WINDOW_S
-        self._last_thumb, self._last_send = thumb, now
+        self._last_thumb, self._last_send, self._retry = thumb, now, False
         return trigger, score

@@ -1,6 +1,6 @@
-# Desk Monitor — Project Handoff
+# Perch — Project Handoff
 
-> Working title. Project name TBD. This doc is the source of truth for every decision made during planning. Start here.
+> This doc is the source of truth for the design decisions. §2 says what is built; where the code and a later section disagree, §2 and the code win. Start here.
 
 ---
 
@@ -20,19 +20,57 @@ Goal: a genuinely useful personal tool **and a resume project**. Resume strength
 
 ## 2. Status and immediate next steps
 
-**Status:** planning done. Nothing built yet. Jev API key exists and the account has credit.
+**Last updated:** 2026-11-12.
+
+**Built:**
+
+| Step (§15) | State | Where |
+|---|---|---|
+| 1–2. Camera spot test, accuracy test | Done. Side spot chosen; 98% activity accuracy on the test clips. | `test/` (gitignored) |
+| 4. Core loop: capture → sampler → Jev → SQLite | Done and checked on the Mac (checkpoints 1–4 in `SPEC-core-loop.md`). | `desk.py`, `camera.py`, `sampler.py`, `jev.py`, `signals.py`, `db.py`, `questions.py` |
+| 5. Mode engine and replay harness | Built and unit-tested against **synthetic data only**. Thresholds are untuned. | `engine.py`, `replay.py`, `tests/` |
+| 7. Dashboard: timeline and totals | Built against synthetic data. | `api.py`, `dashboard/` |
+
+**Not built:** the webcam and mount (3), sessions and lifecycle (6), gestures (8), the labeling UI and accuracy page (9), polish (10).
+
+**No real data exists yet.** The camera is not set up at home, so the agent has not collected any days. The camera so far is an iPhone over Continuity Camera ("Matt Camera"), not the USB webcam in §12.
+
+**Differences from the plan below** (the later sections are the original plan and are not all rewritten):
+
+- **Jev questions:** five, not four. `controllers_out` was added. The final wording is in `questions.py`, not §6.
+- **Jev client:** retries stay off, except that a dropped connection gets one instant retry (the frame is still fresh). Timeouts and 429s fail the observation. The request timeout is 3 s (`JEV_TIMEOUT_S`). After a failed observation the sampler sends a fresh frame about 2.5 s later (trigger `retry`), once.
+- **Failed Jev calls are not `unknown`.** With recent Mac input the frame falls back to the app signal; otherwise it is skipped. The mode becomes `unknown` only after 90 s without usable evidence.
+- **Smoothing constant is 30 s, not 20 s.** At 20 s one odd frame at the 25 s heartbeat carries 71% weight and flips the mode alone.
+- **`controllers_out` ≥ 0.5 means gaming**, overriding the Mac like `tablet_gaming`. Both cutoffs are 0.5.
+- **Modes are derived at read time, not stored.** There is no `modes` table and no fused-mode column. The API replays the day's observations through the engine, so a threshold change re-derives every past day. In-session gaps over 120 s become away segments in `replay.py`.
+- **Thumbnails** are kept 7 days (not 14) unless labeled.
+- **No monitor mask** in the sampler. This is a marked experiment (`config.py`).
+
+**Known weaknesses:**
+
+- A mode's start lags the real change by roughly 20–40 s, and entering away by over a minute. Segment starts are not backdated.
+- The coding tag follows the frontmost app frame by frame, so a glance at a non-coding site splits a coding stretch.
+- A retried connection error that succeeds leaves no trace in the database, only a console line.
+
+**Running it:**
+
+```
+python desk.py [--dry-run]          # the agent (macOS only)
+python fake.py                      # writes a synthetic week to fake.db
+pytest tests -q                     # engine, replay and sampler tests
+uvicorn api:app --port 8765         # API; reads perch.db, or fake.db when perch.db is absent
+cd dashboard && npm run dev         # dashboard on http://localhost:5173 (Node 20+)
+```
+
+The engine, replay, fake data, API and dashboard are plain Python and TypeScript and run on any OS. Only the agent needs the Mac. On the Windows PC there is no system Python: prefix Python commands with `uv run --no-project --with <deps>`, and use `dashboard\dev.cmd` to start Vite with Node 22.
 
 **Next steps, in order:**
 
-1. **Camera spot test (no code).** Prop the iPhone at each candidate mount spot (§12). Record about 1 min each of: typing at the Mac, playing on the iPad, sitting idle, empty chair. Try 0.5× and 1×. Pick the spot where the iPad and hands are most visible. This also sets the webcam's required field of view.
-2. **Accuracy test script (throwaway).** Input: a folder of videos named by label (`computer.mov`, `ipad_gaming.mov`, `away.mov`, `other.mov`) from the chosen spot. The script:
-   - extracts a frame every ~5 s (ffmpeg or OpenCV),
-   - prepares each frame (§4.4),
-   - sends each to Jev with the questions in §6,
-   - reports accuracy per label, misclassified frames, average confidence, latency, and **actual input tokens per image**.
-
-   Goal: confirm Jev can separate the states from this angle **before building anything else**.
-3. Buy the webcam (§12), then build the core loop (§15).
+1. Mount the camera at home and run the agent for a few days to collect real observations.
+2. Replay the real logs and tune the engine thresholds (§8). Nothing tuned on `fake.db` counts.
+3. Labeling UI and accuracy page (§18), then a tuning page that replays a day with different thresholds (the API already accepts them as query parameters, e.g. `?tau_s=45`).
+4. Sessions and lifecycle (§11), then gestures (§10).
+5. Buy the webcam, then design the printed mount and the bird cover (§12).
 
 ---
 
@@ -296,6 +334,9 @@ Shortlist (from Muse.ai research, Nov 3 2026):
 ### Cable
 The right wall to the MacBook (far left) is probably more than 3 m along the desk's back edge. **Measure it.** Use an **active USB extension** (with a repeater) in the 3–5 m range, or a hub mid-desk. Avoid chains of passive extensions.
 
+### Bird cover (later)
+To go with the name, the camera gets a 3D-printed cover shaped like a bird. Ideas so far: the lens is the bird's eye, and the 45° downward mount angle has the bird looking down at the desk. Keep the cosmetic shell separate from the structural bracket, so reprinting or swapping the bird never moves the camera. Design it after the webcam is chosen, since the dimensions depend on it.
+
 ### Mount
 A custom 3D-printed wall mount. PETG for stiffness (PLA creeps). A board-camera bracket, or a ¼"-20 screw for a finished webcam. Design within the Ender 3 V2's build volume (split into parts if needed). Rigidity matters: the monitor mask and the reference photos assume the camera never moves.
 
@@ -312,13 +353,14 @@ A custom 3D-printed wall mount. PETG for stiffness (PLA creeps). A board-camera 
 Rules:
 - Store **raw Jev answers and the final mode separately**; this enables threshold tuning and the ablation.
 - Timestamps in UTC; convert in the dashboard.
-- Thumbnails are low-res, auto-deleted after ~14 days unless labeled.
+- Thumbnails are low-res, auto-deleted after 7 days unless labeled.
+- The schema actually in use is in `db.py`: `sessions`, `observations`, `labels`. See §2 for why there is no `modes` table.
 
 ---
 
 ## 14. Dashboard (TS/React, localhost)
 
-- **Prototype:** a timeline of the day; daily totals per mode; computer time split by the coding tag; untracked gaps shown blank and in-session gaps as away.
+- **Prototype (built):** a timeline of the day; daily totals per mode; computer time split by the coding tag; untracked gaps shown blank and in-session gaps as away.
 - **Later:**
   - an accuracy page against hand labels: confusion matrix, calibration curve, camera-only vs. fused comparison;
   - a labeling UI (show a thumbnail, click the true mode);
@@ -391,7 +433,6 @@ Rules:
 
 ## 19. Open decisions
 
-- **Project name.**
 - **Camera mount spot** and **field of view**: from the iPhone test.
 - **Final Jev question wording** and the iPad reference photos: from the camera test plus the accuracy test.
 - **Which webcam** to buy (ELP recommended) and the cable length.

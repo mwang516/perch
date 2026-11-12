@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--no-project", "--with", "fastapi", "--with", "uvicorn", "uvicorn", "api:app", "--port", "8765"],
+      "port": 8765
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "dashboard\\dev.cmd"],
+      "port": 5173
+    }
+  ]
+}
