@@ -10,7 +10,7 @@ from Foundation import NSDate, NSRunLoop
 import config
 import db
 import signals
-from camera import Camera, list_cameras
+from camera import Camera, authorized, list_cameras, request_access
 from jev import Jev
 from lifecycle import LiveMode, SessionTracker, TokenBudget
 from sampler import Sampler
@@ -55,6 +55,7 @@ class Agent:
         self.dry_run = dry_run
         print(f"cameras visible: {list_cameras()}")
         print(f"looking for: '{config.CAMERA_NAME}'" + ("  (dry run, no Jev calls)" if dry_run else ""))
+        request_access()
         self.cam = Camera(config.CAMERA_NAME)
         self.cam.start()
         self.sampler = Sampler()
@@ -72,12 +73,30 @@ class Agent:
         self.pending_obs: dict = {}
         self.connected: bool | None = None
         self.paused = False
+        self.gestures = None
+        self._start_gestures()
+
+    def _start_gestures(self) -> None:
+        if not config.GESTURES_ENABLED or self.dry_run:
+            return
+        try:
+            from gestures import GestureWatcher
+
+            self.gestures = GestureWatcher(self.cam)
+            self.gestures.start()
+            print(f"gestures on: {config.GESTURE_ACTIONS}")
+        except Exception as e:
+            # Gestures are an extra: a missing model or package must not stop the collector.
+            self.gestures = None
+            print(f"gestures off: {type(e).__name__}: {e}")
 
     @property
     def status(self) -> str:
         """One line for the menu bar."""
         if self.paused:
             return "Paused"
+        if not authorized():
+            return "Camera access not allowed"
         if not self.connected:
             return f"Waiting for {config.CAMERA_NAME}"
         mode = self.live_mode.state.mode
@@ -90,6 +109,9 @@ class Agent:
         self.paused = True
         if self.sessions:
             self.sessions.close("paused")
+        if self.gestures:
+            self.gestures.stop()
+            self.gestures = None
         self.cam.stop()
         self.connected = None
         print("paused")
@@ -101,6 +123,7 @@ class Agent:
         self.sampler = Sampler()
         self.cam = Camera(config.CAMERA_NAME)
         self.cam.start()
+        self._start_gestures()
         print("resumed")
 
     def _finish_pending(self) -> None:
@@ -131,6 +154,8 @@ class Agent:
         if self.conn and time.monotonic() - self.last_prune > config.PRUNE_INTERVAL_S:
             db.prune_thumbnails(self.conn)
             self.last_prune = time.monotonic()
+        while self.gestures and not self.gestures.events.empty():
+            db.add_gesture(self.conn, *self.gestures.events.get())
         if self.paused:
             return
 
@@ -173,6 +198,8 @@ class Agent:
         if self.sessions:
             self.sessions.close(reason)
         self.pool.shutdown(wait=False, cancel_futures=True)
+        if self.gestures:
+            self.gestures.stop()
         self.cam.stop()
 
 

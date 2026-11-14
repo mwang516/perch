@@ -1,5 +1,10 @@
+import os
 import threading
 import time
+
+# OpenCV can only ask for camera permission from the main thread, and the capture runs on a worker thread.
+# So permission is requested here (request_access, called from the main thread) and OpenCV is told not to.
+os.environ.setdefault("OPENCV_AVFOUNDATION_SKIP_AUTH", "1")
 
 import AVFoundation as AV
 import cv2
@@ -19,6 +24,21 @@ def list_cameras() -> list[str]:
     )
     devices.sort(key=lambda d: d.uniqueID())
     return [_normalize(d.localizedName()) for d in devices]
+
+
+def authorized() -> bool:
+    return AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeVideo) == AV.AVAuthorizationStatusAuthorized
+
+
+def request_access() -> None:
+    """Shows the macOS camera prompt the first time. Call from the main thread; the answer arrives later,
+    and the capture thread starts opening the camera once access is granted."""
+    status = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeVideo)
+    if status == AV.AVAuthorizationStatusNotDetermined:
+        AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(AV.AVMediaTypeVideo, lambda granted: None)
+    elif status != AV.AVAuthorizationStatusAuthorized:
+        print("camera access is denied for the app that started this. Allow it under "
+              "System Settings > Privacy & Security > Camera, then restart.")
 
 
 def find_index(name: str) -> int | None:
@@ -53,7 +73,7 @@ class Camera:
 
     def _run(self) -> None:
         while self._running:
-            index = find_index(self.name)
+            index = find_index(self.name) if authorized() else None
             if index is None:
                 time.sleep(config.CAMERA_RETRY_S)
                 continue

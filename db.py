@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS labels (
     labeled_at TEXT NOT NULL,
     sampled TEXT
 );
+CREATE TABLE IF NOT EXISTS gestures (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    gesture TEXT NOT NULL,
+    action TEXT NOT NULL,
+    success INTEGER NOT NULL
+);
 """
 
 # What a frame can be labeled as. "skip" means the thumbnail is too unclear to judge; it is left out of accuracy.
@@ -121,3 +128,8 @@ def delete_label(conn: sqlite3.Connection, observation_id: int) -> None:
 
 def tokens_since(conn: sqlite3.Connection, since_utc: str) -> int:
     return conn.execute("SELECT COALESCE(SUM(input_tokens), 0) FROM observations WHERE ts >= ?", (since_utc,)).fetchone()[0]
+
+
+def add_gesture(conn: sqlite3.Connection, ts: str, gesture: str, action: str, success: bool) -> None:
+    conn.execute("INSERT INTO gestures (ts, gesture, action, success) VALUES (?, ?, ?, ?)", (ts, gesture, action, int(success)))
+    conn.commit()

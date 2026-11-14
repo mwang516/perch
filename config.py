@@ -54,3 +54,17 @@ CODING_DOMAINS = {"leetcode.com", "github.com"}
 
 # Where the menu bar app serves the dashboard (the built copy in dashboard/dist).
 DASHBOARD_PORT = 8765
+
+# Gestures (gestures.py). Off until hand tracking has been checked from the real camera angle.
+GESTURES_ENABLED = False
+# Gesture → action. Gestures: Closed_Fist, Open_Palm, Pointing_Up, Thumb_Down, Thumb_Up, Victory, ILoveYou.
+# Actions: play_pause, next_track, previous_track, mic_mute, volume_up, volume_down, keystroke.
+GESTURE_ACTIONS = {"Victory": "play_pause", "ILoveYou": "mic_mute"}
+GESTURE_HOLD_S = 0.5  # the pose must be held this long
+GESTURE_COOLDOWN_S = 2.0  # and at least this long must pass between two actions
+GESTURE_MIN_SCORE = 0.6
+GESTURE_FPS = 8
+# Part of the frame the recognizer looks at, as fractions (x0, y0, x1, y1); None for the whole frame.
+GESTURE_REGION = None
+# For the "keystroke" action: (key, modifiers), e.g. ("m", ["command", "shift"]) for a Discord mute keybind.
+GESTURE_KEYSTROKE = ("m", ["command", "shift"])

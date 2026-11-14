@@ -10,3 +10,5 @@ uvicorn
 pytest
 httpx
 rumps
+# Only needed when GESTURES_ENABLED is on (gestures.py)
+mediapipe
