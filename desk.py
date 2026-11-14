@@ -1,3 +1,4 @@
+import signal
 import sys
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -11,6 +12,7 @@ import db
 import signals
 from camera import Camera, list_cameras
 from jev import Jev
+from lifecycle import SessionTracker
 from sampler import Sampler
 
 
@@ -44,8 +46,19 @@ def save_thumbnail(frame: np.ndarray, ts: str) -> str:
     return str(path.relative_to(config.BASE_DIR))
 
 
+class Stop(Exception):
+    pass
+
+
+def _stop(signum, _frame) -> None:
+    raise Stop(signal.Signals(signum).name)
+
+
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
+    # Closing the terminal window (SIGHUP) or a kill (SIGTERM) should end the session as cleanly as Ctrl+C.
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGHUP, _stop)
     print(f"cameras visible: {list_cameras()}")
     print(f"looking for: '{config.CAMERA_NAME}'" + ("  (dry run, no Jev calls)" if dry_run else ""))
     cam = Camera(config.CAMERA_NAME)
@@ -53,23 +66,30 @@ def main() -> None:
     sampler = Sampler()
     jev = None if dry_run else Jev()
     conn = None if dry_run else db.connect()
-    session_id = None
+    sessions = SessionTracker(conn) if conn else None
     if conn:
-        session_id = db.start_session(conn)
-        print(f"session {session_id}, pruned {db.prune_thumbnails(conn)} old thumbnails")
+        print(f"pruned {db.prune_thumbnails(conn)} old thumbnails")
     last_prune = time.monotonic()
     pool = ThreadPoolExecutor(max_workers=1)
     pending: Future | None = None
     pending_obs: dict = {}
     connected: bool | None = None
+    end_reason = "error"
     try:
         while True:
             wait(config.TICK_S)
             if pending and pending.done():
-                result = pending.result()
+                try:
+                    result = pending.result()
+                except Exception as e:
+                    # Anything unexpected from the Jev call is one failed observation, not a dead agent.
+                    result = {"ok": False, "error": f"{type(e).__name__}: {e}", "latency_ms": None}
                 print_result(context(pending_obs), result)
-                pending_obs["thumb_path"] = save_thumbnail(pending_obs.pop("frame"), pending_obs["ts"])
-                db.add_observation(conn, session_id, pending_obs, result)
+                frame = pending_obs.pop("frame")
+                # The session can only have ended meanwhile if the camera vanished for minutes mid-request.
+                if sessions.session_id is not None:
+                    pending_obs["thumb_path"] = save_thumbnail(frame, pending_obs["ts"])
+                    db.add_observation(conn, sessions.session_id, pending_obs, result)
                 # One fresh frame after a failure, but no chain of retries while Jev is down.
                 if not result["ok"] and pending_obs["trigger"] != "retry":
                     sampler.failed()
@@ -83,6 +103,12 @@ def main() -> None:
             if live != connected:
                 connected = live
                 print("camera connected" if live else f"waiting for '{config.CAMERA_NAME}'... visible: {list_cameras()}")
+            if sessions:
+                change = sessions.update(live, time.monotonic())
+                if change == "started":
+                    print(f"session {sessions.session_id} started")
+                elif change == "ended":
+                    print(f"session ended: camera gone for over {config.CAMERA_LOST_S} s; waiting for it to return")
             if not live:
                 continue
 
@@ -103,11 +129,13 @@ def main() -> None:
                 print(f"{context(obs)}  (would send)")
                 continue
             pending, pending_obs = pool.submit(jev.ask, frame), {**obs, "frame": frame}
-    except KeyboardInterrupt:
-        if conn:
-            db.end_session(conn, session_id, "quit")
-        print("\nstopping")
+    except (KeyboardInterrupt, Stop) as e:
+        end_reason = "quit"
+        print(f"\nstopping ({type(e).__name__ if isinstance(e, KeyboardInterrupt) else e})")
     finally:
+        # An unexpected error still closes the session (reason "error"), so only a hard kill looks like a crash.
+        if sessions:
+            sessions.close(end_reason)
         pool.shutdown(wait=False, cancel_futures=True)
         cam.stop()
 

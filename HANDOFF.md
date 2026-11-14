@@ -20,7 +20,7 @@ Goal: a genuinely useful personal tool **and a resume project**. Resume strength
 
 ## 2. Status and immediate next steps
 
-**Last updated:** 2026-11-12.
+**Last updated:** 2026-11-14.
 
 **Built:**
 
@@ -29,11 +29,20 @@ Goal: a genuinely useful personal tool **and a resume project**. Resume strength
 | 1–2. Camera spot test, accuracy test | Done. Side spot chosen; 98% activity accuracy on the test clips. | `test/` (gitignored) |
 | 4. Core loop: capture → sampler → Jev → SQLite | Done and checked on the Mac (checkpoints 1–4 in `SPEC-core-loop.md`). | `desk.py`, `camera.py`, `sampler.py`, `jev.py`, `signals.py`, `db.py`, `questions.py` |
 | 5. Mode engine and replay harness | Built and unit-tested against **synthetic data only**. Thresholds are untuned. | `engine.py`, `replay.py`, `tests/` |
+| 6. Sessions and lifecycle | Camera-tied sessions and clean shutdown are built and unit-tested (see below). The rest of §11 is not. | `lifecycle.py`, `desk.py` |
 | 7. Dashboard: timeline and totals | Built against synthetic data. | `api.py`, `dashboard/` |
 
-**Not built:** the webcam and mount (3), sessions and lifecycle (6), gestures (8), the labeling UI and accuracy page (9), polish (10).
+**Not built:** the webcam and mount (3), the menu bar toggle and plug-to-start parts of lifecycle (6), gestures (8), the labeling UI and accuracy page (9), polish (10).
 
-**No real data exists yet.** The camera is not set up at home, so the agent has not collected any days. The camera so far is an iPhone over Continuity Camera ("Matt Camera"), not the USB webcam in §12.
+**No real data exists yet.** The Nov 5 test rows were deleted on 2026-11-14, so `perch.db` starts empty. The camera is the spare iPhone over Continuity Camera, not the USB webcam in §12. The agent looks for **"Perch Camera"** (`config.CAMERA_NAME`): the spare phone must be named "Perch", so the main phone ("Matt Camera") is never opened by mistake. The agent has not yet been run against the spare phone.
+
+**Sessions as built (2026-11-14):**
+
+- A session opens when the camera first delivers frames, not when the agent starts.
+- The camera gone for over 120 s of awake time (`CAMERA_LOST_S`) ends the session with reason `camera_lost`, timed at the moment the camera was last live. A new session opens when the camera returns. Shorter dropouts stay inside the session.
+- Sleep with the camera back within 120 s of waking stays one session; the gap shows as away (§11).
+- Ctrl+C, closing the terminal window (SIGHUP) and SIGTERM all end the session with reason `quit`. An unexpected error ends it with reason `error`. Only a hard kill or power loss leaves a session open (a crash).
+- An unexpected exception from the Jev call is logged as a failed observation instead of stopping the agent.
 
 **Differences from the plan below** (the later sections are the original plan and are not all rewritten):
 
@@ -43,7 +52,7 @@ Goal: a genuinely useful personal tool **and a resume project**. Resume strength
 - **Smoothing constant is 30 s, not 20 s.** At 20 s one odd frame at the 25 s heartbeat carries 71% weight and flips the mode alone.
 - **`controllers_out` ≥ 0.5 means gaming**, overriding the Mac like `tablet_gaming`. Both cutoffs are 0.5.
 - **Modes are derived at read time, not stored.** There is no `modes` table and no fused-mode column. The API replays the day's observations through the engine, so a threshold change re-derives every past day. In-session gaps over 120 s become away segments in `replay.py`.
-- **Thumbnails** are kept 7 days (not 14) unless labeled.
+- **Thumbnails** are kept 30 days unless labeled (`THUMB_RETENTION_DAYS`), raised from 7 until the labeling UI exists.
 - **No monitor mask** in the sampler. This is a marked experiment (`config.py`).
 
 **Known weaknesses:**
@@ -57,19 +66,19 @@ Goal: a genuinely useful personal tool **and a resume project**. Resume strength
 ```
 python desk.py [--dry-run]          # the agent (macOS only)
 python fake.py                      # writes a synthetic week to fake.db
-pytest tests -q                     # engine, replay and sampler tests
+pytest tests -q                     # engine, replay, sampler and session tests
 uvicorn api:app --port 8765         # API; reads perch.db, or fake.db when perch.db is absent
 cd dashboard && npm run dev         # dashboard on http://localhost:5173 (Node 20+)
 ```
 
-The engine, replay, fake data, API and dashboard are plain Python and TypeScript and run on any OS. Only the agent needs the Mac. On the Windows PC there is no system Python: prefix Python commands with `uv run --no-project --with <deps>`, and use `dashboard\dev.cmd` to start Vite with Node 22.
+The engine, replay, fake data, API and dashboard are plain Python and TypeScript and run on any OS. Only the agent needs the Mac. Everything runs from `.venv` (`.venv/bin/python ...`); `.claude/launch.json` has `api` and `dashboard` entries.
 
 **Next steps, in order:**
 
-1. Mount the camera at home and run the agent for a few days to collect real observations.
+1. Name the spare iPhone "Perch", mount it, check the framing with `python desk.py --dry-run`, then run the agent for a few days to collect real observations.
 2. Replay the real logs and tune the engine thresholds (§8). Nothing tuned on `fake.db` counts.
 3. Labeling UI and accuracy page (§18), then a tuning page that replays a day with different thresholds (the API already accepts them as query parameters, e.g. `?tau_s=45`).
-4. Sessions and lifecycle (§11), then gestures (§10).
+4. The rest of lifecycle (§11: menu bar toggle, plug-to-start), then gestures (§10).
 5. Buy the webcam, then design the printed mount and the bird cover (§12).
 
 ---
@@ -353,7 +362,7 @@ A custom 3D-printed wall mount. PETG for stiffness (PLA creeps). A board-camera 
 Rules:
 - Store **raw Jev answers and the final mode separately**; this enables threshold tuning and the ablation.
 - Timestamps in UTC; convert in the dashboard.
-- Thumbnails are low-res, auto-deleted after 7 days unless labeled.
+- Thumbnails are low-res, auto-deleted after 30 days unless labeled.
 - The schema actually in use is in `db.py`: `sessions`, `observations`, `labels`. See §2 for why there is no `modes` table.
 
 ---

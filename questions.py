@@ -23,9 +23,10 @@ QUESTIONS = {
         criteria={
             "computer": "Using the computer: typing on the keyboard, using the mouse, or looking at the monitor or laptop.",
             "gaming": (
-                "Playing a game in one of exactly three ways: tapping on an iPad lying flat on the desk, or the iPad is open with game content; "
+                "Playing a game in one of exactly four ways: tapping on an iPad lying flat on the desk, or the iPad is open with game content; "
                 "a pair of purple hexagonal controllers with white keys are fully visible (may or may not be in use) on the desk; "
-                "or drawing with a pen on a pen tablet while the other hand is on the keyboard."
+                "drawing with a pen on a pen tablet while the other hand is on the keyboard; "
+                "or holding a Nintendo Switch handheld console in both hands (a Switch just lying on the desk doesn't count)."
             ),
             "other": (
                 "At the desk doing something else, such as holding or fiddling with a small object "

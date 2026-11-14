@@ -4,14 +4,18 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "perch.db"
 THUMBS_DIR = BASE_DIR / "thumbnails"
 THUMB_SIZE = (640, 360)
-THUMB_RETENTION_DAYS = 7
+# Long enough to build the labeling UI and label frames; labeled thumbnails are kept regardless.
+THUMB_RETENTION_DAYS = 30
 PRUNE_INTERVAL_S = 3600
 
 CHROME_APP = "Google Chrome"
 
-CAMERA_NAME = "Matt Camera"
+# The spare iPhone, named "Perch" so the main phone ("Matt Camera") is never opened by mistake.
+CAMERA_NAME = "Perch Camera"
 CAMERA_RETRY_S = 3
 CAMERA_STALL_S = 5
+# The camera gone for longer than this (awake time) ends the session; shorter dropouts stay inside it.
+CAMERA_LOST_S = 120
 
 TICK_S = 0.5
 HEARTBEAT_S = 25

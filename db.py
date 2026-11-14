@@ -52,8 +52,8 @@ def start_session(conn: sqlite3.Connection) -> int:
     return cur.lastrowid
 
 
-def end_session(conn: sqlite3.Connection, session_id: int, reason: str) -> None:
-    conn.execute("UPDATE sessions SET ended_at = ?, end_reason = ? WHERE id = ?", (utc_now(), reason, session_id))
+def end_session(conn: sqlite3.Connection, session_id: int, reason: str, at: str | None = None) -> None:
+    conn.execute("UPDATE sessions SET ended_at = ?, end_reason = ? WHERE id = ?", (at or utc_now(), reason, session_id))
     conn.commit()
 
 
