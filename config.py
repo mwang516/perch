@@ -30,9 +30,9 @@ APP_CHANGE_MIN_S = 2.5
 # While the live mode is away, an empty desk needs fewer heartbeats. Motion still triggers at full speed.
 AWAY_HEARTBEAT_S = 45
 
-# Daily cap on Jev input tokens (local day). 48M tokens is about $2 at $0.042 per million.
+# Optional daily cap on Jev input tokens (local day); None means no cap. 48_000_000 is about $2.
 # Past BUDGET_SLOW_AT of the cap the sampler slows down; past the cap it sends heartbeats only.
-DAILY_TOKEN_BUDGET = 48_000_000
+DAILY_TOKEN_BUDGET = None
 BUDGET_SLOW_AT = 0.8
 BUDGET_SLOW_FACTOR = 3  # fast interval and heartbeat are multiplied by this when slowing
 OVER_BUDGET_HEARTBEAT_S = 120
@@ -59,12 +59,13 @@ DASHBOARD_PORT = 8765
 GESTURES_ENABLED = False
 # Gesture → action. Gestures: Closed_Fist, Open_Palm, Pointing_Up, Thumb_Down, Thumb_Up, Victory, ILoveYou.
 # Actions: play_pause, next_track, previous_track, mic_mute, volume_up, volume_down, keystroke.
-GESTURE_ACTIONS = {"Victory": "play_pause", "ILoveYou": "mic_mute"}
+# Pointing_Up is a raised index finger. It presses GESTURE_KEYSTROKE, meant for Discord's Toggle Mute keybind.
+GESTURE_ACTIONS = {"Pointing_Up": "keystroke", "Thumb_Up": "play_pause"}
 GESTURE_HOLD_S = 0.5  # the pose must be held this long
 GESTURE_COOLDOWN_S = 2.0  # and at least this long must pass between two actions
 GESTURE_MIN_SCORE = 0.6
 GESTURE_FPS = 8
 # Part of the frame the recognizer looks at, as fractions (x0, y0, x1, y1); None for the whole frame.
 GESTURE_REGION = None
-# For the "keystroke" action: (key, modifiers), e.g. ("m", ["command", "shift"]) for a Discord mute keybind.
+# For the "keystroke" action: (key, modifiers). Must match the Toggle Mute keybind set in Discord.
 GESTURE_KEYSTROKE = ("m", ["command", "shift"])

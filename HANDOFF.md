@@ -50,7 +50,7 @@ Goal: a genuinely useful personal tool **and a resume project**. Resume strength
 - **`controllers_out` ≥ 0.5 means gaming**, overriding the Mac like `tablet_gaming`. Both cutoffs are 0.5.
 - **Modes are derived at read time, not stored.** There is no `modes` table. The API replays observations through the engine, so a threshold change re-derives every past day. In-session gaps over 120 s become away segments in `replay.py`. The agent also runs the engine live, but only to pace the sampler and label the console line.
 - **Sessions:** a session opens when the camera first delivers frames. The camera gone for over 120 s of awake time ends it (`camera_lost`), timed at the moment the camera was last live. Ctrl+C, closing the terminal and SIGTERM end it as `quit`; pausing from the menu bar ends it as `paused`; an unexpected error as `error`. Only a hard kill leaves a session open (a crash).
-- **Sampler:** the heartbeat is 45 s while the live mode is away. App switches send at most one frame per 2.5 s. A daily cap of 48M input tokens (about $2) slows sampling at 80% and drops to a 120 s heartbeat past it.
+- **Sampler:** the heartbeat is 45 s while the live mode is away. App switches send at most one frame per 2.5 s. A daily token cap exists but is off (`DAILY_TOKEN_BUDGET = None`); when set, sampling slows at 80% and drops to a 120 s heartbeat past it.
 - **Thumbnails** are kept 30 days unless labeled.
 - **No monitor mask** in the sampler (a marked experiment in `config.py`).
 - **Camera permission** is requested from the main thread (`camera.request_access`), because OpenCV cannot prompt from the capture thread.

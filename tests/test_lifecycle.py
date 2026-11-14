@@ -66,6 +66,8 @@ def test_token_budget_levels(monkeypatch):
     b.add(None)
     b.add(200)
     assert b.level() == "over"
+    monkeypatch.setattr(config, "DAILY_TOKEN_BUDGET", None)
+    assert b.level() == "ok"
 
 
 def test_live_mode_follows_the_engine():

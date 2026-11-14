@@ -98,6 +98,8 @@ class TokenBudget:
 
     def level(self) -> str:
         self._roll()
+        if not config.DAILY_TOKEN_BUDGET:
+            return "ok"
         if self.used >= config.DAILY_TOKEN_BUDGET:
             return "over"
         return "slow" if self.used >= config.DAILY_TOKEN_BUDGET * config.BUDGET_SLOW_AT else "ok"

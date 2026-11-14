@@ -135,7 +135,7 @@ class Agent:
         obs, self.pending = self.pending_obs, None
         print_result(context(obs), result, self.live_mode.update(obs, result))
         self.budget.add(result.get("tokens"))
-        if self.budget.level() != self.budget_level:
+        if config.DAILY_TOKEN_BUDGET and self.budget.level() != self.budget_level:
             self.budget_level = self.budget.level()
             print(f"token budget: {self.budget.used:,} of {config.DAILY_TOKEN_BUDGET:,} used today, "
                   f"sampling is now '{self.budget_level}'")
