@@ -30,7 +30,7 @@ Goal: a genuinely useful personal tool **and a resume project**. Resume strength
 | 4. Core loop: capture → sampler → Jev → SQLite | Done and running on real data since 2026-11-14. | `desk.py`, `camera.py`, `sampler.py`, `jev.py`, `signals.py`, `db.py`, `questions.py` |
 | 5. Mode engine and replay harness | Built and unit-tested. **Thresholds are untuned**: nothing has been tuned on real data yet. | `engine.py`, `replay.py`, `tests/` |
 | 6. Sessions and lifecycle | Camera-tied sessions, clean shutdown, pause/resume. | `lifecycle.py`, `desk.py` |
-| 7. Dashboard: day timeline and totals | Built. | `api.py`, `dashboard/` |
+| 7. Dashboard: day timeline, totals and a live view | Built. | `api.py`, `dashboard/` |
 | 8. Gestures | Built, **switched off, recognition untested** against the real camera. | `gestures.py` |
 | 9. Evaluation: labeling UI, accuracy page | Built and checked against synthetic labels. No real labels yet. | `api.py`, `dashboard/src/Label.tsx`, `Accuracy.tsx` |
 | 10. Menu bar app, start at login | Built, **not installed**. Camera permission under `Perch.app` is untested. | `menubar.py`, `alwayson/` |

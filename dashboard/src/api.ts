@@ -150,3 +150,30 @@ export interface Stats {
 }
 
 export const fetchStats = (n: number, signal?: AbortSignal) => get<Stats>(`/api/stats?n=${n}`, signal);
+
+
+export interface LiveObservation {
+  id: number;
+  t: number;
+  trigger: string;
+  change_score: number | null;
+  ok: boolean;
+  error: string | null;
+  latency_ms: number | null;
+  app: string | null;
+  domain: string | null;
+  idle_s: number;
+  nouls: { person_present: number; tablet_gaming: number; controllers_out: number; camera_ok: number } | null;
+  activity: Record<"computer" | "gaming" | "other" | "nobody", number> | null;
+  has_thumb: boolean;
+  mode: Mode | null;
+  coding: boolean;
+  rule: string;
+}
+export interface Live {
+  session: { id: number; start: number; end: number | null; end_reason: string | null; observations: number } | null;
+  observations: LiveObservation[];
+  now: number;
+}
+
+export const fetchLive = (query: string, signal?: AbortSignal) => get<Live>(`/api/live?n=40${query}`, signal);

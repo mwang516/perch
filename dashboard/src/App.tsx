@@ -4,10 +4,11 @@ import { AccuracyPage } from "./Accuracy";
 import { fetchMeta, type Meta } from "./api";
 import { DayPage } from "./Day";
 import { LabelPage } from "./Label";
+import { LivePage } from "./Live";
 import { StatsPage } from "./Stats";
 import { Tuning } from "./Tuning";
 
-const PAGES = { day: "Day", label: "Label", accuracy: "Accuracy", stats: "Stats" } as const;
+const PAGES = { day: "Day", live: "Live", label: "Label", accuracy: "Accuracy", stats: "Stats" } as const;
 type Page = keyof typeof PAGES;
 
 function pageFromHash(): Page {
@@ -50,10 +51,11 @@ export function App() {
         </div>
       </header>
 
-      {meta && (page === "day" || page === "accuracy") && (
+      {meta && (page === "day" || page === "live" || page === "accuracy") && (
         <Tuning defaults={meta.params} overrides={overrides} onChange={setOverrides} />
       )}
       {page === "day" && <DayPage query={query} />}
+      {page === "live" && <LivePage query={query} />}
       {page === "label" && <LabelPage />}
       {page === "accuracy" && <AccuracyPage query={query} />}
       {page === "stats" && <StatsPage />}

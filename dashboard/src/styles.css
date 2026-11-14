@@ -647,3 +647,60 @@ kbd {
 .total-row.wide {
   grid-template-columns: 200px 1fr;
 }
+
+/* Live view */
+.live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--axis);
+}
+.live-dot.on {
+  background: var(--other);
+}
+.live-top {
+  margin-bottom: 16px;
+}
+.live-top .card {
+  margin-bottom: 0;
+}
+.live-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 26px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+.live-facts {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 6px 12px;
+  margin: 0;
+}
+.live-facts dt {
+  color: var(--ink-2);
+}
+.live-facts dd {
+  margin: 0;
+}
+.scroll-x {
+  overflow-x: auto;
+}
+.live-table td,
+.live-table th {
+  white-space: nowrap;
+}
+.live-table tbody tr {
+  cursor: pointer;
+}
+.live-table tbody tr:hover,
+.live-table tbody tr.picked {
+  background: var(--grid);
+}
+.fail {
+  color: #d03b3b;
+}
+.live-table .swatch {
+  margin-right: 6px;
+}

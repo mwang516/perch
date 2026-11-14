@@ -167,6 +167,46 @@ def days(request: Request, n: int = 7, until: date | None = None) -> list[dict]:
     return [{"date": d.isoformat(), "totals": summarize(segments, *day_window(d))} for d in wanted]
 
 
+# ---- Live view ----
+
+@app.get("/api/live")
+def live(request: Request, n: int = 40) -> dict:
+    """The newest session's latest observations with what the engine made of each one, newest first."""
+    if not 1 <= n <= 500:
+        raise HTTPException(400, "n must be between 1 and 500")
+    p = params_from(request)
+    conn = connect()
+    try:
+        last = conn.execute("SELECT id FROM sessions ORDER BY id DESC LIMIT 1").fetchone()
+        if not last:
+            return {"session": None, "observations": [], "now": datetime.now().timestamp()}
+        session = next(s for s in replay.load(conn) if s["id"] == last["id"])
+        rows = conn.execute(
+            """SELECT id, trigger, change_score, status, error, latency_ms, input_tokens, answers, thumb_path
+               FROM observations WHERE session_id = ? ORDER BY ts""", (last["id"],)
+        ).fetchall()
+    finally:
+        conn.close()
+    trace: list = []
+    replay.replay_session(session, p, trace)
+    out = []
+    for row, obs, tr in list(zip(rows, session["observations"], trace))[-n:]:
+        out.append({
+            "id": row["id"], "t": obs["t"], "trigger": row["trigger"], "change_score": row["change_score"],
+            "ok": obs["ok"], "error": row["error"], "latency_ms": row["latency_ms"],
+            "app": obs["app"], "domain": obs["domain"], "idle_s": obs["idle_s"],
+            "nouls": obs["nouls"], "activity": obs["activity"], "has_thumb": row["thumb_path"] is not None,
+            "mode": tr["mode"], "coding": tr["coding"], "rule": tr["rule"],
+        })
+    out.reverse()
+    return {
+        "session": {"id": session["id"], "start": session["start"], "end": session["end"],
+                    "end_reason": session["end_reason"], "observations": len(rows)},
+        "observations": out,
+        "now": datetime.now().timestamp(),
+    }
+
+
 # ---- Labeling ----
 
 UNLABELED = """FROM observations o LEFT JOIN labels l ON l.observation_id = o.id

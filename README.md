@@ -56,6 +56,7 @@ Then open http://localhost:8765.
 | Page | What it shows |
 |---|---|
 | Day | Timeline, totals per mode, coding time, the week |
+| Live | The newest frames, Jev's answers, and which rule decided each mode; refreshes every 3 s |
 | Label | Hand-label saved frames with keys 1–5; Jev's answers are hidden |
 | Accuracy | Fused vs camera-only accuracy, confusion matrices, calibration curves |
 | Stats | Latency, cost, failures, and why frames were sent |

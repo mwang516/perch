@@ -70,3 +70,11 @@ def test_stats(client):
     assert s["observations"] == 3 and s["failed"] == 0
     assert s["latency_ms"]["p50"] == 150.0 and s["tokens_per_call"] == 4400
     assert s["triggers"] == {"heartbeat": 3}
+
+
+def test_live_lists_newest_first_with_the_engine_verdict(client):
+    d = client.get("/api/live?n=2").json()
+    assert d["session"]["observations"] == 3 and len(d["observations"]) == 2
+    first, second = d["observations"]
+    assert first["t"] > second["t"]
+    assert first["mode"] == "computer" and first["coding"] and first["rule"] == "os" and first["has_thumb"]
