@@ -1,7 +1,9 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "perch.db"
+# PERCH_DB points the agent and the API at another database (tests, experiments).
+DB_PATH = Path(os.environ.get("PERCH_DB") or BASE_DIR / "perch.db")
 THUMBS_DIR = BASE_DIR / "thumbnails"
 THUMB_SIZE = (640, 360)
 # Long enough to build the labeling UI and label frames; labeled thumbnails are kept regardless.
@@ -49,3 +51,6 @@ FAKE_DB_PATH = BASE_DIR / "fake.db"
 GAME_APPS = {"osu!", "VMware Fusion"}
 CODING_APPS = {"Cursor", "Terminal", "iTerm2"}
 CODING_DOMAINS = {"leetcode.com", "github.com"}
+
+# Where the menu bar app serves the dashboard (the built copy in dashboard/dist).
+DASHBOARD_PORT = 8765

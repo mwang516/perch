@@ -46,6 +46,136 @@ def save_thumbnail(frame: np.ndarray, ts: str) -> str:
     return str(path.relative_to(config.BASE_DIR))
 
 
+class Agent:
+    """The collector. `tick()` is called about twice a second, from the terminal loop below or from the
+    menu bar app's timer. It must run on the main thread, whose run loop keeps AVFoundation and
+    NSWorkspace fresh (camera list, frontmost app)."""
+
+    def __init__(self, dry_run: bool = False):
+        self.dry_run = dry_run
+        print(f"cameras visible: {list_cameras()}")
+        print(f"looking for: '{config.CAMERA_NAME}'" + ("  (dry run, no Jev calls)" if dry_run else ""))
+        self.cam = Camera(config.CAMERA_NAME)
+        self.cam.start()
+        self.sampler = Sampler()
+        self.jev = None if dry_run else Jev()
+        self.conn = None if dry_run else db.connect()
+        self.sessions = SessionTracker(self.conn) if self.conn else None
+        self.budget = TokenBudget(self.conn) if self.conn else None
+        self.live_mode = LiveMode()
+        self.budget_level = "ok"
+        if self.conn:
+            print(f"pruned {db.prune_thumbnails(self.conn)} old thumbnails")
+        self.last_prune = time.monotonic()
+        self.pool = ThreadPoolExecutor(max_workers=1)
+        self.pending: Future | None = None
+        self.pending_obs: dict = {}
+        self.connected: bool | None = None
+        self.paused = False
+
+    @property
+    def status(self) -> str:
+        """One line for the menu bar."""
+        if self.paused:
+            return "Paused"
+        if not self.connected:
+            return f"Waiting for {config.CAMERA_NAME}"
+        mode = self.live_mode.state.mode
+        return f"Tracking: {mode}" if mode else "Tracking"
+
+    def pause(self) -> None:
+        """Stops tracking and releases the camera. The session ends, so paused time is untracked."""
+        if self.paused:
+            return
+        self.paused = True
+        if self.sessions:
+            self.sessions.close("paused")
+        self.cam.stop()
+        self.connected = None
+        print("paused")
+
+    def resume(self) -> None:
+        if not self.paused:
+            return
+        self.paused = False
+        self.sampler = Sampler()
+        self.cam = Camera(config.CAMERA_NAME)
+        self.cam.start()
+        print("resumed")
+
+    def _finish_pending(self) -> None:
+        try:
+            result = self.pending.result()
+        except Exception as e:
+            # Anything unexpected from the Jev call is one failed observation, not a dead agent.
+            result = {"ok": False, "error": f"{type(e).__name__}: {e}", "latency_ms": None}
+        obs, self.pending = self.pending_obs, None
+        print_result(context(obs), result, self.live_mode.update(obs, result))
+        self.budget.add(result.get("tokens"))
+        if self.budget.level() != self.budget_level:
+            self.budget_level = self.budget.level()
+            print(f"token budget: {self.budget.used:,} of {config.DAILY_TOKEN_BUDGET:,} used today, "
+                  f"sampling is now '{self.budget_level}'")
+        frame = obs.pop("frame")
+        # The session has ended meanwhile if tracking was paused or the camera vanished mid-request.
+        if self.sessions.session_id is not None:
+            obs["thumb_path"] = save_thumbnail(frame, obs["ts"])
+            db.add_observation(self.conn, self.sessions.session_id, obs, result)
+        # One fresh frame after a failure, but no chain of retries while Jev is down.
+        if not result["ok"] and obs["trigger"] != "retry":
+            self.sampler.failed()
+
+    def tick(self) -> None:
+        if self.pending and self.pending.done():
+            self._finish_pending()
+        if self.conn and time.monotonic() - self.last_prune > config.PRUNE_INTERVAL_S:
+            db.prune_thumbnails(self.conn)
+            self.last_prune = time.monotonic()
+        if self.paused:
+            return
+
+        frame, _ = self.cam.latest()
+        live = self.cam.connected and frame is not None
+        if live != self.connected:
+            self.connected = live
+            print("camera connected" if live else f"waiting for '{config.CAMERA_NAME}'... visible: {list_cameras()}")
+        if self.sessions:
+            change = self.sessions.update(live, time.monotonic())
+            if change == "started":
+                self.live_mode.reset()
+                print(f"session {self.sessions.session_id} started")
+            elif change == "ended":
+                print(f"session ended: camera gone for over {config.CAMERA_LOST_S} s; waiting for it to return")
+        if not live:
+            return
+
+        app, idle_s = signals.frontmost_app(), signals.idle_seconds()
+        hit = self.sampler.check(frame, time.monotonic(), app, idle_s, busy=self.pending is not None,
+                                 away=self.live_mode.away, budget=self.budget.level() if self.budget else "ok")
+        if hit is None:
+            return
+        trigger, score = hit
+        obs = {
+            "ts": db.utc_now(),
+            "trigger": trigger,
+            "score": score,
+            "app": app,
+            "domain": signals.chrome_domain() if app == config.CHROME_APP else None,
+            "idle_s": idle_s,
+        }
+        if self.dry_run:
+            print(f"{context(obs)}  (would send)")
+            return
+        self.pending, self.pending_obs = self.pool.submit(self.jev.ask, frame), {**obs, "frame": frame}
+
+    def close(self, reason: str) -> None:
+        """An unexpected error still closes the session (reason "error"), so only a hard kill looks like a crash."""
+        if self.sessions:
+            self.sessions.close(reason)
+        self.pool.shutdown(wait=False, cancel_futures=True)
+        self.cam.stop()
+
+
 class Stop(Exception):
     pass
 
@@ -55,98 +185,20 @@ def _stop(signum, _frame) -> None:
 
 
 def main() -> None:
-    dry_run = "--dry-run" in sys.argv
     # Closing the terminal window (SIGHUP) or a kill (SIGTERM) should end the session as cleanly as Ctrl+C.
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGHUP, _stop)
-    print(f"cameras visible: {list_cameras()}")
-    print(f"looking for: '{config.CAMERA_NAME}'" + ("  (dry run, no Jev calls)" if dry_run else ""))
-    cam = Camera(config.CAMERA_NAME)
-    cam.start()
-    sampler = Sampler()
-    jev = None if dry_run else Jev()
-    conn = None if dry_run else db.connect()
-    sessions = SessionTracker(conn) if conn else None
-    budget = TokenBudget(conn) if conn else None
-    live_mode = LiveMode()
-    budget_level = "ok"
-    if conn:
-        print(f"pruned {db.prune_thumbnails(conn)} old thumbnails")
-    last_prune = time.monotonic()
-    pool = ThreadPoolExecutor(max_workers=1)
-    pending: Future | None = None
-    pending_obs: dict = {}
-    connected: bool | None = None
+    agent = Agent(dry_run="--dry-run" in sys.argv)
     end_reason = "error"
     try:
         while True:
             wait(config.TICK_S)
-            if pending and pending.done():
-                try:
-                    result = pending.result()
-                except Exception as e:
-                    # Anything unexpected from the Jev call is one failed observation, not a dead agent.
-                    result = {"ok": False, "error": f"{type(e).__name__}: {e}", "latency_ms": None}
-                print_result(context(pending_obs), result, live_mode.update(pending_obs, result))
-                budget.add(result.get("tokens"))
-                if budget.level() != budget_level:
-                    budget_level = budget.level()
-                    print(f"token budget: {budget.used:,} of {config.DAILY_TOKEN_BUDGET:,} used today, sampling is now '{budget_level}'")
-                frame = pending_obs.pop("frame")
-                # The session can only have ended meanwhile if the camera vanished for minutes mid-request.
-                if sessions.session_id is not None:
-                    pending_obs["thumb_path"] = save_thumbnail(frame, pending_obs["ts"])
-                    db.add_observation(conn, sessions.session_id, pending_obs, result)
-                # One fresh frame after a failure, but no chain of retries while Jev is down.
-                if not result["ok"] and pending_obs["trigger"] != "retry":
-                    sampler.failed()
-                pending = None
-            if conn and time.monotonic() - last_prune > config.PRUNE_INTERVAL_S:
-                db.prune_thumbnails(conn)
-                last_prune = time.monotonic()
-
-            frame, _ = cam.latest()
-            live = cam.connected and frame is not None
-            if live != connected:
-                connected = live
-                print("camera connected" if live else f"waiting for '{config.CAMERA_NAME}'... visible: {list_cameras()}")
-            if sessions:
-                change = sessions.update(live, time.monotonic())
-                if change == "started":
-                    live_mode.reset()
-                    print(f"session {sessions.session_id} started")
-                elif change == "ended":
-                    print(f"session ended: camera gone for over {config.CAMERA_LOST_S} s; waiting for it to return")
-            if not live:
-                continue
-
-            app, idle_s = signals.frontmost_app(), signals.idle_seconds()
-            hit = sampler.check(frame, time.monotonic(), app, idle_s, busy=pending is not None,
-                                away=live_mode.away, budget=budget.level() if budget else "ok")
-            if hit is None:
-                continue
-            trigger, score = hit
-            obs = {
-                "ts": db.utc_now(),
-                "trigger": trigger,
-                "score": score,
-                "app": app,
-                "domain": signals.chrome_domain() if app == config.CHROME_APP else None,
-                "idle_s": idle_s,
-            }
-            if dry_run:
-                print(f"{context(obs)}  (would send)")
-                continue
-            pending, pending_obs = pool.submit(jev.ask, frame), {**obs, "frame": frame}
+            agent.tick()
     except (KeyboardInterrupt, Stop) as e:
         end_reason = "quit"
         print(f"\nstopping ({type(e).__name__ if isinstance(e, KeyboardInterrupt) else e})")
     finally:
-        # An unexpected error still closes the session (reason "error"), so only a hard kill looks like a crash.
-        if sessions:
-            sessions.close(end_reason)
-        pool.shutdown(wait=False, cancel_futures=True)
-        cam.stop()
+        agent.close(end_reason)
 
 
 if __name__ == "__main__":
