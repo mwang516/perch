@@ -26,60 +26,68 @@ Goal: a genuinely useful personal tool **and a resume project**. Resume strength
 
 | Step (§15) | State | Where |
 |---|---|---|
-| 1–2. Camera spot test, accuracy test | Done. Side spot chosen; 98% activity accuracy on the test clips. | `test/` (gitignored) |
-| 4. Core loop: capture → sampler → Jev → SQLite | Done and checked on the Mac (checkpoints 1–4 in `SPEC-core-loop.md`). | `desk.py`, `camera.py`, `sampler.py`, `jev.py`, `signals.py`, `db.py`, `questions.py` |
-| 5. Mode engine and replay harness | Built and unit-tested against **synthetic data only**. Thresholds are untuned. | `engine.py`, `replay.py`, `tests/` |
-| 6. Sessions and lifecycle | Camera-tied sessions and clean shutdown are built and unit-tested (see below). The rest of §11 is not. | `lifecycle.py`, `desk.py` |
-| 7. Dashboard: timeline and totals | Built against synthetic data. | `api.py`, `dashboard/` |
+| 1–2. Camera spot test, accuracy test | Done on the original side spot: 98% activity accuracy on the test clips. **The live camera angle is different** (see below). | `test/` (gitignored) |
+| 4. Core loop: capture → sampler → Jev → SQLite | Done and running on real data since 2026-11-14. | `desk.py`, `camera.py`, `sampler.py`, `jev.py`, `signals.py`, `db.py`, `questions.py` |
+| 5. Mode engine and replay harness | Built and unit-tested. **Thresholds are untuned**: nothing has been tuned on real data yet. | `engine.py`, `replay.py`, `tests/` |
+| 6. Sessions and lifecycle | Camera-tied sessions, clean shutdown, pause/resume. | `lifecycle.py`, `desk.py` |
+| 7. Dashboard: day timeline and totals | Built. | `api.py`, `dashboard/` |
+| 8. Gestures | Built, **switched off, recognition untested** against the real camera. | `gestures.py` |
+| 9. Evaluation: labeling UI, accuracy page | Built and checked against synthetic labels. No real labels yet. | `api.py`, `dashboard/src/Label.tsx`, `Accuracy.tsx` |
+| 10. Menu bar app, start at login | Built, **not installed**. Camera permission under `Perch.app` is untested. | `menubar.py`, `alwayson/` |
 
-**Not built:** the webcam and mount (3), the menu bar toggle and plug-to-start parts of lifecycle (6), gestures (8), the labeling UI and accuracy page (9), polish (10).
+**Not built:** the webcam and printed mount (3), plug-to-start for a specific USB webcam, a monitor mask, README numbers (they need real labels).
 
-**No real data exists yet.** The Nov 5 test rows were deleted on 2026-11-14, so `perch.db` starts empty. The camera is the spare iPhone over Continuity Camera, not the USB webcam in §12. The agent looks for **"Perch Camera"** (`config.CAMERA_NAME`): the spare phone must be named "Perch", so the main phone ("Matt Camera") is never opened by mistake. The agent has not yet been run against the spare phone.
+**Camera as running now.** The spare iPhone over Continuity Camera, named "Perch" so it appears as **"Perch Camera"** (`config.CAMERA_NAME`); the main phone is "Matt Camera" and is never opened. It sits to the right of the desk looking across the keyboard: torso, arms and lap are in frame on the left, the chair itself is not, and only the bottom edge of the monitor shows. This is **not** the angle the 98% accuracy test used, so the question wording is unverified here until frames are labeled. The iPad goes where the keyboard is.
 
-**Sessions as built (2026-11-14):**
+**First real data (2026-11-14, about 6 minutes, all computer use):** answers look right (`computer` 0.96–1.0, `person_present` 0.73–0.87, `camera_ok` 0.96), 154 ms mean latency, 4,398 tokens per call. The sampler is busy at this angle: ordinary typing scores 8–11.5 against a motion threshold of 8, so the fast window is almost always open (about 1,200 calls per hour, roughly $0.22 per hour). **`MOTION_THRESHOLD` needs raising once there is data that includes leaving the desk**, so the real-change scores are known.
 
-- A session opens when the camera first delivers frames, not when the agent starts.
-- The camera gone for over 120 s of awake time (`CAMERA_LOST_S`) ends the session with reason `camera_lost`, timed at the moment the camera was last live. A new session opens when the camera returns. Shorter dropouts stay inside the session.
-- Sleep with the camera back within 120 s of waking stays one session; the gap shows as away (§11).
-- Ctrl+C, closing the terminal window (SIGHUP) and SIGTERM all end the session with reason `quit`. An unexpected error ends it with reason `error`. Only a hard kill or power loss leaves a session open (a crash).
-- An unexpected exception from the Jev call is logged as a failed observation instead of stopping the agent.
+**How it behaves now** (where this differs from the plan in the later sections, this wins):
 
-**Differences from the plan below** (the later sections are the original plan and are not all rewritten):
-
-- **Jev questions:** five, not four. `controllers_out` was added. The final wording is in `questions.py`, not §6.
-- **Jev client:** retries stay off, except that a dropped connection gets one instant retry (the frame is still fresh). Timeouts and 429s fail the observation. The request timeout is 3 s (`JEV_TIMEOUT_S`). After a failed observation the sampler sends a fresh frame about 2.5 s later (trigger `retry`), once.
+- **Jev questions:** five, not four (`controllers_out` added). Handheld Switch play was added to the `gaming` criterion on 2026-11-14, before collection started; that wording is untested. The final wording is in `questions.py`, not §6.
+- **Jev client:** retries stay off, except that a dropped connection gets one instant retry. Timeouts and 429s fail the observation. Request timeout 3 s. After a failed observation the sampler sends one fresh frame about 2.5 s later (trigger `retry`). Any other exception from the call is logged as a failed observation.
 - **Failed Jev calls are not `unknown`.** With recent Mac input the frame falls back to the app signal; otherwise it is skipped. The mode becomes `unknown` only after 90 s without usable evidence.
-- **Smoothing constant is 30 s, not 20 s.** At 20 s one odd frame at the 25 s heartbeat carries 71% weight and flips the mode alone.
+- **Smoothing constant is 30 s, not 20 s.**
 - **`controllers_out` ≥ 0.5 means gaming**, overriding the Mac like `tablet_gaming`. Both cutoffs are 0.5.
-- **Modes are derived at read time, not stored.** There is no `modes` table and no fused-mode column. The API replays the day's observations through the engine, so a threshold change re-derives every past day. In-session gaps over 120 s become away segments in `replay.py`.
-- **Thumbnails** are kept 30 days unless labeled (`THUMB_RETENTION_DAYS`), raised from 7 until the labeling UI exists.
-- **No monitor mask** in the sampler. This is a marked experiment (`config.py`).
+- **Modes are derived at read time, not stored.** There is no `modes` table. The API replays observations through the engine, so a threshold change re-derives every past day. In-session gaps over 120 s become away segments in `replay.py`. The agent also runs the engine live, but only to pace the sampler and label the console line.
+- **Sessions:** a session opens when the camera first delivers frames. The camera gone for over 120 s of awake time ends it (`camera_lost`), timed at the moment the camera was last live. Ctrl+C, closing the terminal and SIGTERM end it as `quit`; pausing from the menu bar ends it as `paused`; an unexpected error as `error`. Only a hard kill leaves a session open (a crash).
+- **Sampler:** the heartbeat is 45 s while the live mode is away. App switches send at most one frame per 2.5 s. A daily cap of 48M input tokens (about $2) slows sampling at 80% and drops to a 120 s heartbeat past it.
+- **Thumbnails** are kept 30 days unless labeled.
+- **No monitor mask** in the sampler (a marked experiment in `config.py`).
+- **Camera permission** is requested from the main thread (`camera.request_access`), because OpenCV cannot prompt from the capture thread.
+- **Labels** record how the frame was picked (`random` or `balanced`). `skip` means the frame is too unclear and is left out of accuracy. The labeling page hides Jev's answers.
 
 **Known weaknesses:**
 
 - A mode's start lags the real change by roughly 20–40 s, and entering away by over a minute. Segment starts are not backdated.
 - The coding tag follows the frontmost app frame by frame, so a glance at a non-coding site splits a coding stretch.
+- Leaning back may take the torso out of the left edge of the frame; with the Mac idle that would read as away.
 - A retried connection error that succeeds leaves no trace in the database, only a console line.
 
-**Running it:**
+**Running it** (everything from `.venv`; the agent must be started from a terminal that has camera permission, not from the Claude app):
 
 ```
-python desk.py [--dry-run]          # the agent (macOS only)
-python fake.py                      # writes a synthetic week to fake.db
-pytest tests -q                     # engine, replay, sampler and session tests
-uvicorn api:app --port 8765         # API; reads perch.db, or fake.db when perch.db is absent
-cd dashboard && npm run dev         # dashboard on http://localhost:5173 (Node 20+)
+.venv/bin/python desk.py [--dry-run]              # the agent
+.venv/bin/python -m pytest tests -q               # all tests
+.venv/bin/python -m uvicorn api:app --port 8765   # API, plus the built dashboard if dashboard/dist exists
+npm --prefix dashboard run dev                    # dashboard dev server on http://localhost:5173
+npm --prefix dashboard run build                  # build the dashboard so the API serves it on :8765
+.venv/bin/python fake.py                          # synthetic week into fake.db (used only when perch.db is absent)
+alwayson/install.sh                               # menu bar app + start at login (stop desk.py first)
+.venv/bin/python gestures.py --download           # fetch the gesture model; then `gestures.py` to try it
 ```
 
-The engine, replay, fake data, API and dashboard are plain Python and TypeScript and run on any OS. Only the agent needs the Mac. Everything runs from `.venv` (`.venv/bin/python ...`); `.claude/launch.json` has `api` and `dashboard` entries.
+`PERCH_DB=/path/to.db` points the agent and the API at another database.
 
 **Next steps, in order:**
 
-1. Name the spare iPhone "Perch", mount it, check the framing with `python desk.py --dry-run`, then run the agent for a few days to collect real observations.
-2. Replay the real logs and tune the engine thresholds (§8). Nothing tuned on `fake.db` counts.
-3. Labeling UI and accuracy page (§18), then a tuning page that replays a day with different thresholds (the API already accepts them as query parameters, e.g. `?tau_s=45`).
-4. The rest of lifecycle (§11: menu bar toggle, plug-to-start), then gestures (§10).
-5. Buy the webcam, then design the printed mount and the bird cover (§12).
+1. Collect a few days, including leaving the desk, iPad gaming, the controllers and the Switch.
+2. Raise `MOTION_THRESHOLD` from the logged change scores (Stats page: why frames were sent).
+3. Label a few hundred frames on the Label page, picked at random.
+4. Read the Accuracy page. If `person_present` or `gaming` is weak at this angle, reword the questions and re-check.
+5. Tune the engine thresholds with the panel on the Day and Accuracy pages, then copy the values into `Params` in `engine.py`.
+6. Try gestures in print-only mode, choose the mapping, then set `GESTURES_ENABLED`.
+7. Run `alwayson/install.sh` to move from the terminal to the menu bar app.
+8. Fill the README numbers, then the webcam, printed mount and bird cover (§12).
 
 ---
 
@@ -356,14 +364,14 @@ A custom 3D-printed wall mount. PETG for stiffness (PLA creeps). A board-camera 
 - `sessions`: id, start_utc, end_utc, end_reason (quit / unplug / off / crash)
 - `observations`: id, session_id, ts_utc, trigger, latency_ms, input_tokens, model_version, **Jev raw answers** (all probabilities as JSON), frontmost_app, chrome_domain, idle_seconds, **fused mode**, smoothed scores (JSON), thumbnail_path
 - `modes`: session_id, mode, coding_tag, start_utc, end_utc
-- `gestures`: ts_utc, gesture, action, success
+- `gestures`: ts_utc, gesture, action, success (built)
 - `labels`: observation_id, true_mode (for evaluation)
 
 Rules:
 - Store **raw Jev answers and the final mode separately**; this enables threshold tuning and the ablation.
 - Timestamps in UTC; convert in the dashboard.
 - Thumbnails are low-res, auto-deleted after 30 days unless labeled.
-- The schema actually in use is in `db.py`: `sessions`, `observations`, `labels`. See §2 for why there is no `modes` table.
+- The schema actually in use is in `db.py`: `sessions`, `observations`, `labels`, `gestures`. See §2 for why there is no `modes` table.
 
 ---
 
