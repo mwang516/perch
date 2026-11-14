@@ -54,3 +54,27 @@ def test_quit_closes_the_open_session_and_is_a_no_op_without_one():
     s.update(True, 0.0)
     s.close("quit")
     assert rows(conn)[0][2] == "quit" and rows(conn)[0][1] is not None
+
+
+def test_token_budget_levels(monkeypatch):
+    from lifecycle import TokenBudget
+    monkeypatch.setattr(config, "DAILY_TOKEN_BUDGET", 1000)
+    b = TokenBudget(db.connect(":memory:"))
+    assert b.level() == "ok"
+    b.add(800)
+    assert b.level() == "slow"
+    b.add(None)
+    b.add(200)
+    assert b.level() == "over"
+
+
+def test_live_mode_follows_the_engine():
+    from lifecycle import LiveMode
+    m = LiveMode()
+    gone = {"ok": True, "nouls": {"person_present": 0.02, "tablet_gaming": 0.0, "controllers_out": 0.0, "camera_ok": 0.99},
+            "probabilities": {"computer": 0.01, "gaming": 0.01, "other": 0.01, "nobody": 0.97}}
+    obs = {"ts": "2026-11-14T18:00:00.000+00:00", "app": "Cursor", "domain": None, "idle_s": 300.0}
+    assert m.update(obs, gone) == "away" and m.away
+    m.reset()
+    assert not m.away
+    assert m.update({**obs, "idle_s": 1.0}, {"ok": False, "error": "x"}) == "computer"

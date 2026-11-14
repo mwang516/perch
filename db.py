@@ -117,3 +117,7 @@ def set_label(conn: sqlite3.Connection, observation_id: int, mode: str, sampled:
 def delete_label(conn: sqlite3.Connection, observation_id: int) -> None:
     conn.execute("DELETE FROM labels WHERE observation_id = ?", (observation_id,))
     conn.commit()
+
+
+def tokens_since(conn: sqlite3.Connection, since_utc: str) -> int:
+    return conn.execute("SELECT COALESCE(SUM(input_tokens), 0) FROM observations WHERE ts >= ?", (since_utc,)).fetchone()[0]

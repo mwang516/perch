@@ -12,7 +12,7 @@ import db
 import signals
 from camera import Camera, list_cameras
 from jev import Jev
-from lifecycle import SessionTracker
+from lifecycle import LiveMode, SessionTracker, TokenBudget
 from sampler import Sampler
 
 
@@ -26,13 +26,13 @@ def context(obs: dict) -> str:
     return f"{time.strftime('%H:%M:%S')}  {obs['trigger']:12} score={obs['score']:5.1f}  app={app} idle={obs['idle_s']:.0f}s"
 
 
-def print_result(ctx: str, r: dict) -> None:
+def print_result(ctx: str, r: dict, mode: str | None = None) -> None:
     if not r["ok"]:
         print(f"{ctx}  ERROR {r['error']}")
         return
     n = r["nouls"]
     print(
-        f"{ctx}  activity={r['activity']} ({r['confidence']:.2f})  "
+        f"{ctx}  [{mode or '?':8}] activity={r['activity']} ({r['confidence']:.2f})  "
         f"person={n['person_present']:.2f} tablet={n['tablet_gaming']:.2f} ctrl={n['controllers_out']:.2f} cam={n['camera_ok']:.2f}  "
         f"{r['latency_ms']:.0f}ms {r['tokens']}tok"
     )
@@ -67,6 +67,9 @@ def main() -> None:
     jev = None if dry_run else Jev()
     conn = None if dry_run else db.connect()
     sessions = SessionTracker(conn) if conn else None
+    budget = TokenBudget(conn) if conn else None
+    live_mode = LiveMode()
+    budget_level = "ok"
     if conn:
         print(f"pruned {db.prune_thumbnails(conn)} old thumbnails")
     last_prune = time.monotonic()
@@ -84,7 +87,11 @@ def main() -> None:
                 except Exception as e:
                     # Anything unexpected from the Jev call is one failed observation, not a dead agent.
                     result = {"ok": False, "error": f"{type(e).__name__}: {e}", "latency_ms": None}
-                print_result(context(pending_obs), result)
+                print_result(context(pending_obs), result, live_mode.update(pending_obs, result))
+                budget.add(result.get("tokens"))
+                if budget.level() != budget_level:
+                    budget_level = budget.level()
+                    print(f"token budget: {budget.used:,} of {config.DAILY_TOKEN_BUDGET:,} used today, sampling is now '{budget_level}'")
                 frame = pending_obs.pop("frame")
                 # The session can only have ended meanwhile if the camera vanished for minutes mid-request.
                 if sessions.session_id is not None:
@@ -106,6 +113,7 @@ def main() -> None:
             if sessions:
                 change = sessions.update(live, time.monotonic())
                 if change == "started":
+                    live_mode.reset()
                     print(f"session {sessions.session_id} started")
                 elif change == "ended":
                     print(f"session ended: camera gone for over {config.CAMERA_LOST_S} s; waiting for it to return")
@@ -113,7 +121,8 @@ def main() -> None:
                 continue
 
             app, idle_s = signals.frontmost_app(), signals.idle_seconds()
-            hit = sampler.check(frame, time.monotonic(), app, idle_s, busy=pending is not None)
+            hit = sampler.check(frame, time.monotonic(), app, idle_s, busy=pending is not None,
+                                away=live_mode.away, budget=budget.level() if budget else "ok")
             if hit is None:
                 continue
             trigger, score = hit

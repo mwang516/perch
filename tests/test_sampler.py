@@ -38,3 +38,29 @@ def test_retry_waits_while_a_request_is_in_flight():
     s.failed()
     assert triggers(s, [3.0], busy=True) == []
     assert triggers(s, [3.5]) == [(3.5, "retry")]
+
+
+def test_away_stretches_the_heartbeat():
+    s = Sampler()
+    sent = [(t, hit[0]) for i in range(201) if (hit := s.check(FRAME, t := i * 0.5, "Cursor", 1.0, False, away=True))]
+    assert sent == [(0.0, "heartbeat"), (45.0, "heartbeat"), (90.0, "heartbeat")]
+
+
+def test_over_budget_sends_only_slow_heartbeats():
+    s = Sampler()
+    apps = ["Cursor", "Chrome"]
+    sent = [hit[0] for i in range(601) if (hit := s.check(FRAME, i * 0.5, apps[i // 50 % 2], 1.0, False, budget="over"))]
+    assert sent == ["heartbeat", "heartbeat", "heartbeat"]
+
+
+def test_near_budget_slows_the_heartbeat():
+    s = Sampler()
+    sent = [t for i in range(401) if s.check(FRAME, t := i * 0.5, "Cursor", 1.0, False, budget="slow")]
+    assert sent == [0.0, 75.0, 150.0]
+
+
+def test_rapid_app_switching_is_rate_limited_but_not_lost():
+    s = Sampler()
+    apps = {0.0: "Cursor", 0.5: "Chrome", 1.0: "Cursor", 1.5: "Chrome"}
+    sent = [(t, hit[0]) for i in range(21) if (hit := s.check(FRAME, t := i * 0.5, apps.get(t, "Chrome"), 1.0, False))]
+    assert sent == [(0.0, "heartbeat"), (config.APP_CHANGE_MIN_S, "app_change")]

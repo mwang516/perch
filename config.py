@@ -22,6 +22,18 @@ HEARTBEAT_S = 25
 FAST_INTERVAL_S = 2.5
 FAST_WINDOW_S = 30
 IDLE_THRESHOLD_S = 60
+# Flipping between apps would otherwise send a frame per switch (13 of the first 22 real observations).
+# A switch inside this window still gets its frame, once the window has passed.
+APP_CHANGE_MIN_S = 2.5
+# While the live mode is away, an empty desk needs fewer heartbeats. Motion still triggers at full speed.
+AWAY_HEARTBEAT_S = 45
+
+# Daily cap on Jev input tokens (local day). 48M tokens is about $2 at $0.042 per million.
+# Past BUDGET_SLOW_AT of the cap the sampler slows down; past the cap it sends heartbeats only.
+DAILY_TOKEN_BUDGET = 48_000_000
+BUDGET_SLOW_AT = 0.8
+BUDGET_SLOW_FACTOR = 3  # fast interval and heartbeat are multiplied by this when slowing
+OVER_BUDGET_HEARTBEAT_S = 120
 
 # A normal answer takes ~150 ms. A hung request blocks every other send, so give up early.
 JEV_TIMEOUT_S = 3

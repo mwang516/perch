@@ -1,9 +1,12 @@
 """Sessions: a session is the agent running AND the camera delivering frames (HANDOFF §11)."""
 
 import sqlite3
+from datetime import datetime, timezone
 
 import config
 import db
+import engine
+import replay
 
 
 class SessionTracker:
@@ -44,3 +47,57 @@ class SessionTracker:
         at = self._last_live if self._lost_since is not None else None
         db.end_session(self._conn, self.session_id, reason, at)
         self.session_id, self._lost_since = None, None
+
+
+class LiveMode:
+    """The engine run live, only to pace the sampler and label the console line. Nothing it decides is
+    stored: modes are always re-derived from the logged observations at read time."""
+
+    def __init__(self):
+        self.state = engine.State()
+
+    def reset(self) -> None:
+        self.state = engine.State()
+
+    def update(self, obs: dict, result: dict) -> str | None:
+        self.state, _ = engine.step(self.state, {
+            "t": replay.to_epoch(obs["ts"]),
+            "ok": result["ok"],
+            "nouls": result.get("nouls"),
+            "activity": result.get("probabilities"),
+            "app": obs["app"],
+            "domain": obs["domain"],
+            "idle_s": obs["idle_s"],
+        })
+        return self.state.mode
+
+    @property
+    def away(self) -> bool:
+        return self.state.mode == "away"
+
+
+class TokenBudget:
+    """Counts today's Jev input tokens (local day) against the daily cap."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+        self._day = None
+        self.used = 0
+        self._roll()
+
+    def _roll(self) -> None:
+        now = datetime.now().astimezone()
+        if now.date() != self._day:
+            self._day = now.date()
+            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+            self.used = db.tokens_since(self._conn, midnight.isoformat(timespec="milliseconds"))
+
+    def add(self, tokens: int | None) -> None:
+        self._roll()
+        self.used += tokens or 0
+
+    def level(self) -> str:
+        self._roll()
+        if self.used >= config.DAILY_TOKEN_BUDGET:
+            return "over"
+        return "slow" if self.used >= config.DAILY_TOKEN_BUDGET * config.BUDGET_SLOW_AT else "ok"
