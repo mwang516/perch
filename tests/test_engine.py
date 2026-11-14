@@ -172,3 +172,19 @@ def test_fake_week_end_to_end(tmp_path):
     segs = replay.replay(replay.load(conn))
     assert all(s["end"] > s["start"] for s in segs)
     conn.close()
+
+
+def test_wilson_interval_brackets_the_rate():
+    lo, hi = replay.wilson(90, 100)
+    assert 0.82 < lo < 0.9 < hi < 0.95
+    assert replay.wilson(0, 0) is None
+
+
+def test_reliability_bins_and_error():
+    # Says 0.9 and is right 9 times in 10: perfectly calibrated.
+    good = replay.reliability([(0.9, True)] * 9 + [(0.9, False)])
+    assert good["ece"] < 1e-9 and good["bins"][0]["n"] == 10
+    # Says 0.95 but is right half the time.
+    bad = replay.reliability([(0.95, True), (0.95, False)])
+    assert abs(bad["ece"] - 0.45) < 1e-9
+    assert replay.reliability([])["ece"] is None

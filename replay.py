@@ -2,6 +2,7 @@
 so changing a threshold re-derives every past day."""
 
 import json
+import math
 import sqlite3
 from datetime import datetime
 
@@ -106,17 +107,57 @@ def totals(segments: list[dict], start: float | None = None, end: float | None =
     return out
 
 
-def score_labels(conn: sqlite3.Connection, p: Params = Params()) -> dict:
-    """Accuracy against hand labels: the fused engine vs the camera's activity answer alone."""
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
+    """95% Wilson score interval for k successes in n trials."""
+    if n == 0:
+        return None
+    phat = k / n
+    denom = 1 + z * z / n
+    centre = (phat + z * z / (2 * n)) / denom
+    half = z * math.sqrt(phat * (1 - phat) / n + z * z / (4 * n * n)) / denom
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def reliability(points: list[tuple[float, bool]], bins: int = 10) -> dict:
+    """Calibration of (stated probability, was it true) pairs: per-bin rates and the expected calibration error."""
+    out, ece = [], 0.0
+    for b in range(bins):
+        lo, hi = b / bins, (b + 1) / bins
+        inside = [(prob, hit) for prob, hit in points if lo <= prob < hi or (b == bins - 1 and prob == 1.0)]
+        if not inside:
+            continue
+        mean_p = sum(prob for prob, _ in inside) / len(inside)
+        rate = sum(hit for _, hit in inside) / len(inside)
+        ece += len(inside) / len(points) * abs(mean_p - rate)
+        out.append({"lo": lo, "hi": hi, "n": len(inside), "mean_p": mean_p, "rate": rate})
+    return {"n": len(points), "ece": ece if points else None, "bins": out}
+
+
+def score_labels(conn: sqlite3.Connection, p: Params = Params(), sampled: str | None = None) -> dict:
+    """Accuracy against hand labels: the fused engine vs the camera's activity answer alone.
+
+    `sampled` keeps only labels picked that way ("random" gives an unbiased headline number).
+    Labels marked "skip" (frame too unclear to judge) are left out.
+    """
     conn.row_factory = sqlite3.Row
-    labels = {r["observation_id"]: r["mode"] for r in conn.execute("SELECT observation_id, mode FROM labels")}
+    labels = {
+        r["observation_id"]: r["mode"]
+        for r in conn.execute("SELECT observation_id, mode, sampled FROM labels")
+        if r["mode"] != "skip" and (sampled is None or r["sampled"] == sampled)
+    }
     pairs = []  # (truth, fused, camera)
+    activity_points, person_points = [], []
     for session in load(conn):
         trace: list = []
         replay_session(session, p, trace)
         for obs, tr in zip(session["observations"], trace):
-            if obs["id"] in labels:
-                pairs.append((labels[obs["id"]], tr["mode"], engine.camera_mode(obs)))
+            if obs["id"] not in labels:
+                continue
+            truth = labels[obs["id"]]
+            pairs.append((truth, tr["mode"], engine.camera_mode(obs)))
+            if obs["ok"]:
+                activity_points.append((max(obs["activity"].values()), engine.camera_mode(obs) == truth))
+                person_points.append((obs["nouls"]["person_present"], truth != "away"))
 
     def summarize(idx: int) -> dict:
         confusion: dict = {}
@@ -125,6 +166,28 @@ def score_labels(conn: sqlite3.Connection, p: Params = Params()) -> dict:
             pred = pair[idx] or "unknown"
             row[pred] = row.get(pred, 0) + 1
         correct = sum(row.get(truth, 0) for truth, row in confusion.items())
-        return {"accuracy": correct / len(pairs) if pairs else None, "confusion": confusion}
+        per_mode = {}
+        for mode in engine.MODES:
+            support = sum(confusion.get(mode, {}).values())
+            predicted = sum(row.get(mode, 0) for row in confusion.values())
+            hit = confusion.get(mode, {}).get(mode, 0)
+            if support or predicted:
+                per_mode[mode] = {
+                    "support": support,
+                    "predicted": predicted,
+                    "recall": hit / support if support else None,
+                    "precision": hit / predicted if predicted else None,
+                }
+        return {
+            "accuracy": correct / len(pairs) if pairs else None,
+            "interval": wilson(correct, len(pairs)),
+            "confusion": confusion,
+            "per_mode": per_mode,
+        }
 
-    return {"n": len(pairs), "fused": summarize(1), "camera": summarize(2)}
+    return {
+        "n": len(pairs),
+        "fused": summarize(1),
+        "camera": summarize(2),
+        "calibration": {"activity": reliability(activity_points), "person_present": reliability(person_points)},
+    }

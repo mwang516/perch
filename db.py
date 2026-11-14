@@ -31,9 +31,13 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE TABLE IF NOT EXISTS labels (
     observation_id INTEGER PRIMARY KEY REFERENCES observations(id),
     mode TEXT NOT NULL,
-    labeled_at TEXT NOT NULL
+    labeled_at TEXT NOT NULL,
+    sampled TEXT
 );
 """
+
+# What a frame can be labeled as. "skip" means the thumbnail is too unclear to judge; it is left out of accuracy.
+LABEL_MODES = ("computer", "gaming", "other", "away", "skip")
 
 
 def utc_now() -> str:
@@ -41,8 +45,12 @@ def utc_now() -> str:
 
 
 def connect(path=None) -> sqlite3.Connection:
-    conn = sqlite3.connect(path or config.DB_PATH)
+    conn = sqlite3.connect(path or config.DB_PATH, timeout=10)
     conn.executescript(SCHEMA)
+    # Databases created before labels recorded how the frame was picked ("random" or "balanced").
+    if "sampled" not in [r[1] for r in conn.execute("PRAGMA table_info(labels)")]:
+        conn.execute("ALTER TABLE labels ADD COLUMN sampled TEXT")
+        conn.commit()
     return conn
 
 
@@ -95,3 +103,17 @@ def prune_thumbnails(conn: sqlite3.Connection) -> int:
         conn.execute("UPDATE observations SET thumb_path = NULL WHERE id = ?", (obs_id,))
     conn.commit()
     return len(rows)
+
+
+def set_label(conn: sqlite3.Connection, observation_id: int, mode: str, sampled: str | None = None) -> None:
+    conn.execute(
+        """INSERT INTO labels (observation_id, mode, labeled_at, sampled) VALUES (?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO UPDATE SET mode = excluded.mode, labeled_at = excluded.labeled_at""",
+        (observation_id, mode, utc_now(), sampled),
+    )
+    conn.commit()
+
+
+def delete_label(conn: sqlite3.Connection, observation_id: int) -> None:
+    conn.execute("DELETE FROM labels WHERE observation_id = ?", (observation_id,))
+    conn.commit()
